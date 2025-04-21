@@ -1,0 +1,172 @@
+#!/usr/bin/env lua
+
+-- Required LuaSocket modules for HTTP requests and time measurement
+local http = require("socket.http")
+local ltn12 = require("ltn12")
+local socket = require("socket")  -- For measuring request duration
+
+-- ANSI color codes
+local colors = {
+    reset = "\27[0m",
+    red = "\27[31m",
+    green = "\27[32m",
+    yellow = "\27[33m",
+    blue = "\27[34m"
+}
+
+-- Banner
+print(colors.blue .. "====================================")
+print(" Fuzion v1.0 ")
+print(" A Simple Fuzzer in Lua ")
+print(" Creator: luinor-0987 ")
+print("====================================\n" .. colors.reset)
+
+-- Global variables
+local url = ""
+local wordlist = ""
+local threads = 30
+local match_codes = nil
+local extensions = {}
+local output_file = ""
+local headers = {}
+
+-- Help
+local function print_help()
+    print(colors.yellow .. " Fuzion v1.0 - A Simple Fuzzer written in Lua\n" .. colors.reset)
+    print(" Usage: fuzion [options]\n")
+    print(" Options:")
+    print(colors.green .. "  -h <help>      " .. colors.reset .. "Show this help message")
+    print(colors.green .. "  -u <url>       " .. colors.reset .. "Target URL with 'FUZION' as the injection point")
+    print(colors.green .. "  -w <wordlist>  " .. colors.reset .. "Path to the wordlist")
+    print(colors.green .. "  -t <threads>   " .. colors.reset .. "Number of concurrent threads (Default: 30)")
+    print(colors.green .. "  -mc <codes>    " .. colors.reset .. "Match specific HTTP status codes (comma-separated)")
+    print(colors.green .. "  -o <file>      " .. colors.reset .. "Save results to a file")
+    print(colors.green .. "  -H <header>    " .. colors.reset .. "Custom HTTP header (e.g., 'User-Agent: Fuzion')\n")
+    os.exit()
+end
+
+-- CLI arg parsing
+local function parse_args()
+    for i = 1, #arg do
+        if arg[i] == "-u" then url = arg[i + 1]
+        elseif arg[i] == "-w" then wordlist = arg[i + 1]
+        elseif arg[i] == "-t" then threads = tonumber(arg[i + 1])
+        elseif arg[i] == "-mc" then
+            match_codes = {}
+            for code in string.gmatch(arg[i + 1], "%d+") do
+                table.insert(match_codes, tonumber(code))
+            end
+        elseif arg[i] == "-o" then output_file = arg[i + 1]
+        elseif arg[i] == "-H" then table.insert(headers, arg[i + 1])
+        elseif arg[i] == "-h" then print_help()
+        end
+    end
+end
+
+-- Load wordlist
+local function read_wordlist(file)
+    local words = {}
+    for line in io.lines(file) do
+        table.insert(words, line)
+    end
+    return words
+end
+
+-- Fuzzer core
+local function fuzion(target_url, word, total, count)
+    local targets = { word }
+    for _, ext in ipairs(extensions) do
+        table.insert(targets, word .. "." .. ext)
+    end
+
+    for _, fuzz in ipairs(targets) do
+        local fuzzed_url = string.gsub(target_url, "FUZION", fuzz)
+        local response_body = {}
+        local request_headers = {}
+        for _, header in ipairs(headers) do
+            local key, value = header:match("(.-):%s*(.*)")
+            if key and value then request_headers[key] = value end
+        end
+
+        local start_time = socket.gettime()
+        local _, code, _, _ = http.request {
+            url = fuzzed_url,
+            headers = request_headers,
+            sink = ltn12.sink.table(response_body)
+        }
+        local end_time = socket.gettime()
+        local duration = math.floor((end_time - start_time) * 1000)  -- ms
+
+        if code then
+            local color = colors.green
+            if tonumber(code) >= 300 and tonumber(code) < 400 then
+                color = colors.yellow
+            elseif tonumber(code) >= 400 then
+                color = colors.red
+            end
+
+            local show = false
+            if not match_codes or #match_codes == 0 then
+                show = true
+            else
+                for _, mc in ipairs(match_codes) do
+                    if tonumber(code) == mc then
+                        show = true
+                        break
+                    end
+                end
+            end
+
+            if show then
+                local result = string.format(
+                    "%-25s [Status: %s, Duration: %dms]",
+                    fuzz, code, duration
+                )
+                print(color .. result .. colors.reset)
+
+                if output_file ~= "" then
+                    local file = io.open(output_file, "a")
+                    file:write(result .. "\n")
+                    file:close()
+                end
+            end
+        end
+    end
+    -- Show progress
+    io.write(colors.blue .. string.format(":: Progress: [%d/%d]\r", count, total) .. colors.reset)
+    io.flush()
+end
+
+-- Main logic
+parse_args()
+
+if url == "" or wordlist == "" then
+    print(colors.red .. "[!] Missing required arguments. Use -h for help." .. colors.reset)
+    os.exit()
+end
+
+-- Summary
+print(colors.blue .. "[*] Target URL: " .. url .. colors.reset)
+print(colors.blue .. "[*] Threads: " .. threads .. colors.reset)
+if match_codes then
+    print(colors.blue .. "[*] Match Codes: " .. table.concat(match_codes, ", ") .. colors.reset)
+end
+if output_file ~= "" then
+    print(colors.blue .. "[*] Output File: " .. output_file .. colors.reset)
+end
+if #headers > 0 then
+    print(colors.blue .. "[*] Custom Headers: " .. table.concat(headers, ", ") .. colors.reset)
+end
+
+-- Start fuzzing
+local words = read_wordlist(wordlist)
+print(colors.green .. "[*] Wordlist Loaded: " .. #words .. " entries\n" .. colors.reset)
+
+local count = 0
+for _, word in ipairs(words) do
+    count = count + 1
+    fuzion(url, word, #words, count)
+end
+
+print(colors.green .. "\n[✓] Fuzzing complete!" .. colors.reset)
+
