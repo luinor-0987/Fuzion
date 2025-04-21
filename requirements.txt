@@ -1,0 +1,6 @@
+Only these requirements are required: 
+1. lua5.4
+2. luarocks
+3. luasocket
+
+-- Refer to the setup.txt file for configuring the script. 
