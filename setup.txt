@@ -1,0 +1,12 @@
+-- First update & upgrade your system
+sudo apt update; apt upgrade -y
+
+-- Install the following packages
+1. sudo apt install lua5.4 luarocks
+2. sudo luarocks install luasocket
+
+-- Enable global access for the file
+chmod 755 fuzion
+cp fuzion /usr/local/bin/fuzion
+
+-- done!
